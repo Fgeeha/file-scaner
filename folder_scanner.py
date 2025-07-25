@@ -2,58 +2,91 @@ import os
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
+# --- Функции конвертации размера ---
+def format_size(size_bytes, unit):
+    if unit == "Bytes":
+        return f"{size_bytes} B"
+    if unit == "KB":
+        return f"{size_bytes / 1024:.2f} KB"
+    if unit == "MB":
+        return f"{size_bytes / 1024**2:.2f} MB"
+    if unit == "GB":
+        return f"{size_bytes / 1024**3:.2f} GB"
+    return ""  # None
+
+# --- GUI callbacks ---
 def select_folder():
-    """Open a folder dialog and store the selected path."""
     path = filedialog.askdirectory(title="Select Folder to Scan")
     if path:
         folder_path_var.set(path)
 
 def scan_folder():
-    """Scan the selected folder and write results to res.txt."""
     folder = folder_path_var.get()
+    unit = size_unit_var.get()
     if not folder:
         messagebox.showerror("Error", "Please select a folder first.")
         return
 
-    entries = []
-    # Walk through the directory tree in sorted order
+    lines = []
+    # пробегаем по дереву каталогов
     for root, dirs, files in os.walk(folder):
         dirs.sort()
         files.sort()
-        for filename in files:
-            fullpath = os.path.join(root, filename)
+        # глубина для отступа
+        rel_path = os.path.relpath(root, folder)
+        depth = 0 if rel_path == "." else rel_path.count(os.sep) + 1
+        indent = "    " * (depth - 1) if depth > 0 else ""
+        # пишем каталог
+        folder_name = os.path.basename(root) if depth > 0 else os.path.abspath(root)
+        lines.append(f"{indent}{folder_name}/\n")
+        # пишем файлы
+        for fn in files:
+            full = os.path.join(root, fn)
             try:
-                size = os.path.getsize(fullpath)
+                sz = os.path.getsize(full)
             except OSError:
-                size = 0
-            # file type is the extension without the dot (or 'none' if no ext)
-            ext = os.path.splitext(filename)[1][1:] or "none"
-            entries.append((fullpath, filename, ext, size))
+                sz = 0
+            ext = os.path.splitext(fn)[1][1:] or "none"
+            # конвертируем
+            size_str = format_size(sz, unit) if unit != "None" else ""
+            indent_file = "    " * depth
+            if size_str:
+                lines.append(f"{indent_file}{fn}, {ext}, {size_str}\n")
+            else:
+                lines.append(f"{indent_file}{fn}, {ext}\n")
 
-    # Write to res.txt in the current working directory
-    with open("res.txt", "w", encoding="utf-8") as f:
-        for fullpath, name, ftype, fsize in entries:
-            f.write(f"{name}, {ftype}, {fsize}\n")
+    # сохраняем в res.txt
+    try:
+        with open("res.txt", "w", encoding="utf-8") as f:
+            f.writelines(lines)
+    except Exception as e:
+        messagebox.showerror("Error", f"Failed to write res.txt:\n{e}")
+        return
 
-    messagebox.showinfo("Done", f"Scan complete!\n{len(entries)} files listed in res.txt")
+    messagebox.showinfo("Done", f"Scan complete! {sum(1 for L in lines if L.strip().endswith('/')==False)} files listed in res.txt")
 
-# --- Build the GUI ---
+# --- Построение GUI ---
 root = tk.Tk()
 root.title("Folder Scanner")
 
 folder_path_var = tk.StringVar()
+size_unit_var = tk.StringVar(value="KB")  # по умолчанию KB
 
-# Folder selection row
-frame = tk.Frame(root, padx=10, pady=10)
-frame.pack(fill="x")
+# Выбор папки
+frm = tk.Frame(root, padx=10, pady=10)
+frm.pack(fill="x")
+tk.Label(frm, text="Folder:").pack(side="left")
+tk.Entry(frm, textvariable=folder_path_var, width=50).pack(side="left", padx=(5,0))
+tk.Button(frm, text="Browse…", command=select_folder).pack(side="left", padx=5)
 
-tk.Label(frame, text="Folder:").pack(side="left")
-entry = tk.Entry(frame, textvariable=folder_path_var, width=50)
-entry.pack(side="left", padx=(5, 0))
-tk.Button(frame, text="Browse…", command=select_folder).pack(side="left", padx=5)
+# Параметры размера
+frm2 = tk.Frame(root, padx=10)
+frm2.pack(fill="x")
+tk.Label(frm2, text="Size unit:").pack(side="left")
+opts = ["Bytes", "KB", "MB", "GB", "None"]
+tk.OptionMenu(frm2, size_unit_var, *opts).pack(side="left", padx=(5,0))
 
-# Scan button
-scan_btn = tk.Button(root, text="Start Scan", command=scan_folder)
-scan_btn.pack(pady=(0,10))
+# Кнопка старта
+tk.Button(root, text="Start Scan", command=scan_folder).pack(pady=(10,10))
 
 root.mainloop()
